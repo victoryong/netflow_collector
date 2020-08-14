@@ -52,9 +52,9 @@ if ! test -r $1; then
 fi
 
 if [[ $(echo $1 | grep -E -o ':') == ':' ]]; then
-	$(nfdump -R $1 -q > $2)
+	$(nfdump -R $1 -q -o pipe > $2)
 else
-	$(nfdump -r $1 -q > $2)
+	$(nfdump -r $1 -q -o pipe > $2)
 fi
 if [[ $? == 0 ]]; then
 	echo $(date +%Y/%m/%d-%H:%M:%S),nfdump,$1,$2 >> $ok_log_file
@@ -87,7 +87,7 @@ fi
 
 function next_rotate(){
 # calculate the time at which next rotate will begin
-# params: [optional]latest rotate time in the format '%Y%m%d%H%M' or nowtime by default
+# params: [opti#onal]latest rotate time in the format '%Y%m%d%H%M' or nowtime by default
 # return: time of next rotate
 
 if [[ $# == 0 ]]; then 
