@@ -9,3 +9,4 @@ nc_dir=${root_dir}pflow_dir/
 # hdfs_dir=/user/hadoop/flow_txt/
 
 schedule_task
+# schedule_task_async
