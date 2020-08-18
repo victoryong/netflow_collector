@@ -153,12 +153,11 @@ function schedule_task_async(){
 
 	while :
 	do
-		aggregate_all $nxt_time $nc_dir $nd_dir $hdfs_dir
+		aggregate_all $nxt_time $nc_dir $nd_dir $hdfs_dir &
 		nxt_time=$(next_rotate $nxt_time)
 		echo waiting for $nxt_time to be completed...
 		sleep 5m
 	done
-
 	# wait
 }
 
