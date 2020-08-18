@@ -1,168 +1,194 @@
 #!/bin/bash
 
-function is_abdir(){
-# check if a string is a valid absolute directory path
-
-s=$(echo $1 | grep -E -o '^\/(\w+\/?)+$')
-if [[ ${#s} == `expr length $1` ]]; then return 1; else return 0; fi 
-}
-
-
-function check_sh_params(){
-# check if parameters sent from the shell command meet the demand of parsing and transmission
-# params: All parameters sent from shell command
-# return: Meet the demand or not (true/false)
-
-if [[ $# < 3 ]]; then
-	echo There are three paramters required!\($# is not engouth. \)
-	return 0
-else
-	file=$(echo $1 | grep -E -o '^\/(\w+\/)+nfcapd.[0-9]+')
-
-	# echo $file
-	if test -r $file;then
-		echo hahahhah1 > /dev/null
-	else		
-		echo $1 isn\'t a nfcapd binary data file. Byebye!
-		return 0
-	fi
-	
-	nd_dir=$(echo $2 | grep -E -o '^\/(\w+\/?)+$')
-	if test -d $nd_dir; then echo hahahahha2  > /dev/null
-	else echo $2 isn\'t a existing directory. Byebye!; return 0; 
-	fi
-
-	is_abdir $3
-	if [[ $? == 0 ]]; then echo $3 isn\'t a valid directory. Byebye!; return 0
-	else echo hahahahhaa3 > /dev/null; return 1
-	fi
-fi
-}
-
+# ====
 
 function dump_netflow(){
-# process binary netflow data and save into a text file
-# params: 1: a binary netflow file or a series of binary netflow data files;
-# 	  2: absolute path of nfdump output file 
-# return: whether nfdump executes successfully
+	# process binary netflow data and save into a text file
+	# params: 1: a binary netflow file or a series of binary netflow data files;
+	# 	  2: absolute path of nfdump output file 
+	# return: whether nfdump executes successfully
 
-echo nfdump is running...
-if ! test -r $1; then
-	echo Error: $1 doesn\'t exists! 
-fi
+	echo nfdump is running...
+	if ! test -r $1; then
+		echo Error: $1 doesn\'t exists! 
+	fi
 
-if [[ $(echo $1 | grep -E -o ':') == ':' ]]; then
-	$(nfdump -R $1 -q -o pipe > $2)
-else
-	$(nfdump -r $1 -q -o pipe > $2)
-fi
-if [[ $? == 0 ]]; then
-	echo $(date +%Y/%m/%d-%H:%M:%S),nfdump,$1,$2 >> $ok_log_file
-	# rm -f $1
-	return 1
-else
-	echo $(date +%Y/%m/%d-%H:%M:%S),nfdump,$1,$2 >> $no_log_file
-	return 0
-fi
+	if [[ $(echo $1 | grep -E -o ':') == ':' ]]; then
+		$(nfdump -R $1 -q -o pipe > $2)
+	else
+		$(nfdump -r $1 -q -o pipe > $2)
+	fi
+	if [[ $? == 0 ]]; then
+		echo $(date +%Y/%m/%d-%H:%M:%S),nfdump,$1,$2 >> $_ok_log_file
+		rename $1 $1_ok $1
+		return 1
+	else
+		echo $(date +%Y/%m/%d-%H:%M:%S),nfdump,$1,$2 >> $_no_log_file
+		return 0
+	fi
 }
 
 function put_hdfs(){
-# put nfdump text file onto hdfs while ensuring if the put operation is successfully done
-# params: 1: nfdump text file
-# 	  2: hdfs path to save the text file
-# return: whether put hdfs succeeds or not
+	# put nfdump text file onto hdfs while ensuring if the put operation is successfully done
+	# params: 1: nfdump text file
+	# 	2: hdfs path to save the text file
+	# return: whether put hdfs succeeds or not
 
-echo putting text files onto hdfs...
-cd /usr/hadoop/hadoop-3.0.0/
-bin/hadoop fs -put file://$1 $2
-if [[ $? == 0 ]]; then
-	echo $(date +%Y/%m/%d-%H:%M:%S) puthdfs,$1,$2 >> $ok_log_file
-	#rm -f $1
-	return 1
-else
-	echo $(date +%Y/%m/%d-%H:%M:%S) puthdfs,$1,$2 >> $no_log_file
-fi
+	echo putting text files onto hdfs...
+	$_hadoop -put file://$1 $2
+	if [[ $? == 0 ]]; then
+		echo $(date +%Y/%m/%d-%H:%M:%S) puthdfs,$1,$2 >> $_ok_log_file
+		#rm -f $1
+		rename $1 $1_ok $1
+		return 1
+	else
+		echo $(date +%Y/%m/%d-%H:%M:%S) puthdfs,$1,$2 >> $_no_log_file
+	fi
+}
+
+function aggregate_all(){
+	# aggregate all steps of nfdump, put hdfs
+	# params: 1. time string
+	# 	2. nfcapd directory
+	# 	3. nfdump directory
+	#	4. hdfs directory
+
+	nc_file=$2nfcapd.$1
+	nd_file=$3nfdump.$1
+	dump_netflow $nc_file $nd_file
+	if [[ $? != 1 ]]; then 
+		echo Error: nfdump $nc_file failed! 
+	else
+		put_hdfs $nd_file $4
+		if [[ $? != 1 ]]; then
+			echo Error: put hdfs $nd_file $3 failed!
+		else
+			echo Info: the whole process of $1 completed! 
+		fi
+	fi
 }
 
 
-function next_rotate(){
-# calculate the time at which next rotate will begin
-# params: [opti#onal]latest rotate time in the format '%Y%m%d%H%M' or nowtime by default
-# return: time of next rotate
+function batch_process(){
+	# batch process existing nfcapd files which are waiting until current time
+	# params: 1. directory of nfcapd files
+	# 	2. directory of nfdump output
+	# 	3. directory of hdfs to put text files
 
-if [[ $# == 0 ]]; then 
-	d_str=`date +%Y%m%d%H%M`
-	last_char=${d_str: -1}
-	
-	if [[ $(($last_char<5)) == 1 ]]; then
-		w=-$last_char
+	waiting_files=`ls $1 | egrep ^nfcapd.[[:digit:]]+$`
+	for i in $waiting_files
+	do 
+		aggregate_all ${i/nfcapd./} $1 $2 $3
+	done
+}
+
+# ====
+
+function next_rotate(){
+	# calculate the time at which next rotate will begin
+	# params: [optional]latest rotate time in the format '%Y%m%d%H%M' or nowtime by default
+	# return: time of next rotate
+
+	if [[ $# == 0 ]]; then 
+		d_str=`date +%Y%m%d%H%M`
+		last_char=${d_str: -1}
+		
+		if [[ $(($last_char<5)) == 1 ]]; then
+			w=-$last_char
+		else
+			w=-$(($last_char-5))
+		fi
 	else
-		w=-$(($last_char-5))
+		d_str=$1
+		w=5
 	fi
-else
-	d_str=$1
-	w=5
-fi
-secs=$(($w*60))
-format_dstr="${d_str:0:4}-${d_str:4:2}-${d_str:6:2} ${d_str:8:2}:${d_str:10:2}"
-stamp=$(date +%s -d "$format_dstr")
-stamp2=$(($stamp+$secs))
-_n=$(date +%Y%m%d%H%M -d "1970-01-01 UTC $stamp2 seconds")
-echo $_n
+	secs=$(($w*60))
+	format_dstr="${d_str:0:4}-${d_str:4:2}-${d_str:6:2} ${d_str:8:2}:${d_str:10:2}"
+	stamp=$(date +%s -d "$format_dstr")
+	stamp2=$(($stamp+$secs))
+	_n=$(date +%Y%m%d%H%M -d "1970-01-01 UTC $stamp2 seconds")
+	echo $_n
 }
 
 
 function schedule_task(){
-# schedule task for periodically dumping and putting netflow data every 5 mins
+	# schedule task for periodically dumping and putting netflow data every 5 mins
 
-init
+	init
+	nxt_rotate=`next_rotate`
+	format_time="${nxt_rotate:0:4}-${nxt_rotate:4:2}-${nxt_rotate:6:2} ${nxt_rotate:8:2}:${nxt_rotate:10:2}"
+	stamp=$(date +%s -d "$format_time")
+	newcoming_time=$(($stamp+305))
 
-# align the clock and the first rotate time
-nxt_time=$(next_rotate)
-format_nxt="${nxt_time:0:4}-${nxt_time:4:2}-${nxt_time:6:2} ${nxt_time:8:2}:${nxt_time:10:2}"
-nxt_stamp=$(date +%s -d "$format_nxt")
-now_stamp=$(date +%s)
-align_secs=$(($nxt_stamp-$now_stamp+60*5+5))
-echo waiting for $nxt_time to be completed...
-sleep $align_secs
-
-while :
-do
-	nd_file=${nd_dir}nfdump.$nxt_time
-	dump_netflow ${nc_dir}nfcapd.$nxt_time $nd_file
-	if [[ $? != 1 ]]; then 
-		echo Error: nfdump ${nc_dir}nfcapd.$nxt_time failed! 
-	else
-		put_hdfs $nd_file ${hdfs_dir}
-		if [[ $? != 1 ]]; then
-			echo Error: put hdfs $nd_file ${hdfs_dir} failed!
-		else
-			echo Info: the whole process of $nxt_time completed! 
+	while :
+	do
+		batch_process $nc_dir $nd_dir $hdfs_dir
+		curr_time=`date +%s`
+		if [[ $curr_time < $newcoming_time ]]; then
+			sleep $(($newcoming_time-$curr_time))
 		fi
-	fi
-	nxt_time=$(next_rotate $nxt_time)
+		nxt_rotate=`next_rotate $nxt_rotate`
+		format_time="${nxt_rotate:0:4}-${nxt_rotate:4:2}-${nxt_rotate:6:2} ${nxt_rotate:8:2}:${nxt_rotate:10:2}"
+		stamp=$(date +%s -d "$format_time")
+		newcoming_time=$(($stamp+305))
+		# break
+	done
+}
+
+
+function schedule_task_async(){
+	# asynchronously schedule task of periodically collecting data
+
+	init
+	batch_process $nc_dir $nd_dir $hdfs_dir &
+
+	# align the clock and the first rotate time
+	nxt_time=$(next_rotate)
+	format_nxt="${nxt_time:0:4}-${nxt_time:4:2}-${nxt_time:6:2} ${nxt_time:8:2}:${nxt_time:10:2}"
+	nxt_stamp=$(date +%s -d "$format_nxt")
+	now_stamp=$(date +%s)
+	align_secs=$(($nxt_stamp-$now_stamp+60*5+5))
 	echo waiting for $nxt_time to be completed...
-	sleep 5m
-done
+	sleep $align_secs
+
+	while :
+	do
+		aggregate_all $nxt_time $nc_dir $nd_dir $hdfs_dir
+		nxt_time=$(next_rotate $nxt_time)
+		echo waiting for $nxt_time to be completed...
+		sleep 5m
+	done
+
+	# wait
 }
 
 
 function init(){
-if ! test -d $nc_dir; then mkdir -p $nc_dir; fi
-if ! test -d $nd_dir; then mkdir -p $nd_dir; fi
-if ! test -w $ok_log_file; then	touch $ok_log_file; fi
-if ! test -w $no_log_file; then touch $no_log_file; fi
+	if ! test -d $nc_dir; then mkdir -p $nc_dir; fi
+	if ! test -d $nd_dir; then mkdir -p $nd_dir; fi
+	if ! test -w $_ok_log_file; then	touch $_ok_log_file; fi
+	if ! test -w $_no_log_file; then touch $_no_log_file; fi
+	$_hadoop -test -d $hdfs_dir
+	if [[ $? != 0 ]]; then
+		$_hadoop -mkdir -p $hdfs_dir
+	fi
 }
 
+
+# ====
 # variables below can be re-assigned when another script includes these file
 root_dir=/home/victor/GitRepo/
 nc_dir=${root_dir}flow_dir/
 nd_dir=${root_dir}nd_dir/
 hdfs_dir=/user/hadoop/flow_txt/
 
-ok_log_file=${nc_dir}transaction_ok.log
-no_log_file=${nc_dir}transaction_no.log
+# inner variables that are not recommended to be modified
+_ok_log_file=${nc_dir}transaction_ok.log
+_no_log_file=${nc_dir}transaction_no.log
+_hadoop="/usr/hadoop/hadoop-3.0.0/bin/hadoop fs"
 
 # debug
 #echo $(next_rotate)
 
+
+schedule_task_async
