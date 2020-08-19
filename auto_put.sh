@@ -147,7 +147,7 @@ function schedule_task_async(){
 	format_nxt="${nxt_time:0:4}-${nxt_time:4:2}-${nxt_time:6:2} ${nxt_time:8:2}:${nxt_time:10:2}"
 	nxt_stamp=$(date +%s -d "$format_nxt")
 	now_stamp=$(date +%s)
-	align_secs=$(($nxt_stamp-$now_stamp+60*5+5))
+	align_secs=$(($nxt_stamp-$now_stamp+60*5+3))
 	echo waiting for $nxt_time to be completed...
 	sleep $align_secs
 
@@ -174,11 +174,11 @@ function init(){
 }
 
 
-# ====
+# ==== scripts
 # variables below can be re-assigned when another script includes these file
-root_dir=/home/victor/GitRepo/
-nc_dir=${root_dir}flow_dir/
-nd_dir=${root_dir}nd_dir/
+data_dir=/home/victor/data/
+nc_dir=${data_dir}flow_dir/
+nd_dir=${data_dir}nd_dir/
 hdfs_dir=/user/hadoop/flow_txt/
 
 # inner variables that are not recommended to be modified
@@ -186,8 +186,8 @@ _ok_log_file=${nc_dir}transaction_ok.log
 _no_log_file=${nc_dir}transaction_no.log
 _hadoop="/usr/hadoop/hadoop-3.0.0/bin/hadoop fs"
 
-# debug
+
+# ==== debug
 #echo $(next_rotate)
 
-
-schedule_task_async
+# schedule_task_async

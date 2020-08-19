@@ -1,6 +1,6 @@
 #!/bin/sh
 
-root_dir=/home/victor/GitRepo/
+root_dir=/home/victor/data/
 if [[ $# == 2 ]]; then
 	interface=$1
 	flow_dir=$2

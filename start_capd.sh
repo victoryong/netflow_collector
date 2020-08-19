@@ -6,7 +6,7 @@
 if [ $# == 1 ];then
   nfcapd -w -D -T all -l $1
 else
-  nfcapd -w -D -T all -l /home/victor/GitRepo/flow_dir/
+  nfcapd -w -D -T all -l /home/victor/data/flow_dir/
 fi
 
 
